@@ -39,30 +39,35 @@ def parse_sgml(file_path):
                 doc_dict[document_no].append(text_data)
             except KeyError, ke:
                 doc_dict[document_no] = [text_data]
-            finally:
-                # Reset text_data as we may hit another <Text>
-                # with different Dateline
-                text_data = ""
-                text = False
+
+            # Reset text_data as we may hit another <Text>
+            # with different Dateline
+            text_data = ""
+            text = False
         elif text:
             # Fetch document text data
             text_data += "%s\n" % line
         elif line.startswith("<DOCNO>"):
             # We've got DOCNO
-            document_no = line.replace("<DOCNO>", "").replace("</DOCNO>", "").strip()
+            document_no = line.split()[1]
         elif line.startswith("<TEXT>"):
             text = True
 
+    del uncompressed_data
+
     # Return the dictionaries
-    return doc_dict, index
+    return doc_dict
 
 def generate_index(doc):
         # Fill in the inverted index with the data
+        index = {}
         for term in text_data.split():
             try:
                 index[term].add(document_no)
             except KeyError, ke:
                 index[term] = set([document_no])
+
+
 
 
 class IndexEngine(object):
@@ -71,6 +76,7 @@ class IndexEngine(object):
     def __init__(self):
         self.data_path = "data/AP"
         self.document_cache = "cache/documents.db"
+        self.index_cache = "cache/index.db"
 
         # List of stopwords
         self.stopwords = open("docs/stopwords.txt", "r").read().strip().split("\n")
@@ -78,48 +84,42 @@ class IndexEngine(object):
         # List of .Z files containing AP documents
         self.file_list = sorted(glob.glob(os.path.join(self.data_path, "*.Z")))
 
-        # Inverted intex
-        self.index = {}
-
-        self.documents = {}
-
-    def merge_index(self, new_index):
-        for k,v in new_index.items():
-            try:
-                self.index[k].update(v)
-            except KeyError:
-                self.index[k] = v
-
     def start(self):
-        # result is a list of parse_sgml()'s return values for
-        # every .Z thus it contains 364 result.
-        #result = self.pool.map_async(parse_sgml, self.file_list, chunksize=4, callback=parsed_callback)
-        #result.wait()
+        documents = {}
+        index = {}
+
+        # Create a multiprocessing pool
         pool = multiprocessing.Pool(maxtasksperchild=1)
 
-        for result in pool.imap_unordered(parse_sgml, self.file_list, chunksize=10):
-            self.documents.update(result[0])
+        # Parse every SGML file and generate a document cache
+        # for easy retrieval of documents.
+        for result in pool.map(parse_sgml, self.file_list, chunksize=10):
+            documents.update(result)
 
-        _f = open(self.document_cache, "wb")
-        cPickle.Pickler(_f, protocol=2)
-        cPickle.dump(self.documents, f, protocol=2)
+        # Dump document cache
+        cache_file = open(self.document_cache, "wb")
+        cPickle.Pickler(cache_file, protocol=2)
+        cPickle.dump(documents, cache_file, protocol=2)
+        cache_file.close()
 
-        del self.documents
-        import time
-        print "Sleeping.."
-        time.sleep(5)
-        pool.close()
-        pool.join()
-        time.sleep(5)
+        # Generate inverted index
+        for docno, docs in documents.items():
+            for doc in docs:
+                # Terms are currently whitespace separated
+                for term in doc.split():
+                    try:
+                        index[term].add(docno)
+                    except KeyError, ke:
+                        index[term] = set([docno])
 
+        # Some early cleanup for avoiding memory exhaustion
+        del documents
 
-    def index(self):
-        print self.index
-
-    def create_index(self):
-        """Creates a document index in the index_dir directory."""
-        pass
-
+        # Dump index cache
+        cache_file = open(self.index_cache, "wb")
+        cPickle.Pickler(cache_file, protocol=2)
+        cPickle.dump(index, cache_file, protocol=2)
+        cache_file.close()
 
 if __name__ == "__main__":
     engine = IndexEngine()
