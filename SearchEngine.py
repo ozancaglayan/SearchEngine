@@ -6,11 +6,11 @@ import gc
 import sys
 import glob
 import time
+import string
 import cPickle
 import multiprocessing
 
 from utils import *
-
 from PorterStemmer import PorterStemmer
 
 class SearchEngine(object):
@@ -37,88 +37,76 @@ class SearchEngine(object):
         cache_file.close()
 
     def create_index(self, use_stopwords=True, use_stemmer=False):
-        def normalize_term(term, use_stemmer=False):
-            """Process the term according some rules and return it."""
-            import string
-
-            # First of all convert all cases to lowercase
-            nterm = term.lower()
-
-            # Strip out leading and trailing punctuation characters
-            nterm = term.strip(string.punctuation)
-
-            # Use porter stemmer to find out the stem of the term
-            if use_stemmer:
-                nterm = self.stemmer.stem(nterm, 0, len(nterm)-1)
-
-            return nterm
 
         # Dictionaries
         documents = {}
         index = {}
 
-        # Create a multiprocessing pool
-        pool = multiprocessing.Pool(maxtasksperchild=1)
+        if not os.path.exists(self.document_cache_path):
+            # Create a multiprocessing pool
+            pool = multiprocessing.Pool(maxtasksperchild=1)
 
-        # List of .Z files to parse/index
-        file_list = sorted(glob.glob(os.path.join(self.data_path, "*.Z")))
+            # List of .Z files to parse/index
+            file_list = sorted(glob.glob(os.path.join(self.data_path, "*.Z")))
 
-        # List of stopwords
-        stop_words = open("docs/stopwords.txt", "r").read().strip().split("\r\n")
+            print "Creating document cache..."
+            # Parse every SGML file and generate a document cache
+            # for easy retrieval of documents.
+            start = time.time()
+            for result in pool.map(parse_sgml, file_list, chunksize=10):
+                documents.update(result)
 
-        print "Creating document cache..."
-        # Parse every SGML file and generate a document cache
-        # for easy retrieval of documents.
-        start = time.time()
-        for result in pool.map(parse_sgml, file_list, chunksize=10):
-            documents.update(result)
+            # Cleanup the pool correctly
+            pool.close()
+            pool.join()
 
-        # Cleanup the pool correctly
-        pool.close()
-        pool.join()
+            # Dump document cache
+            print "Document cache created in %.2f seconds." % (time.time() - start)
+            print "Dumping document cache onto disk..."
+            self.dump_cache(documents, self.document_cache_path)
+            print "Document cache dumped in %.2f seconds." % (time.time() - start)
 
-        # Dump document cache
-        print "Document cache created in %.2f seconds." % (time.time() - start)
-        print "Dumping document cache onto disk..."
-        self.dump_cache(documents, self.document_cache_path)
-        print "Document cache dumped in %.2f seconds." % (time.time() - start)
-
-        gc.collect()
+            gc.collect()
+        else:
+            print "Loading document cache..."
+            documents = cPickle.Unpickler(open(self.document_cache_path, "rb")).load()
 
         # Generate inverted index
         # FIXME: parallelize here
         print "Creating inverted index of search terms..."
         start = time.time()
-        """
-        pool2 = multiprocessing.Pool()
-        keyctr = 0
-        for result in pool2.imap(generate_index, documents.iteritems(), chunksize=100):
-            docno, terms = result
-            keyctr += 1
-            print "%d/%d.." % (keyctr, len(documents.keys()))
-            for term in terms:
-                try:
-                    index[term].add(docno)
-                except KeyError, ke:
-                    index[term] = set([docno])
 
-            del terms
+        # List of stopwords
+        stop_words = open("docs/stopwords.txt", "r").read().strip().split("\r\n")
 
-        pool2.close()
-        pool2.join()
+        punctuation = string.punctuation
 
-        """
         for docno, docs in documents.items():
             # Merge sub-documents into one string
             total_docs = "".join(docs)
 
-            # Terms are currently whitespace separated
-            for term in total_docs.split():
-                normalized_term = normalize_term(term, use_stemmer)
+            # Terms are whitespace delimited
+            for term in [t.lower().strip(punctuation) \
+                    for t in total_docs.split() if not t.isdigit()]:
+                # First of all convert all cases to lowercase and
+                # Strip out leading and trailing punctuation characters
+                # nterm = term.lower().strip(string.punctuation)
+
+                # Use porter stemmer to find out the stem of the term
+                nterm = self.stemmer.stem(term, 0, len(term)-1)
+
+                #position = find_all(total_docs, term)
+
+                # Add the term to the inverted intex
                 try:
-                    index[normalized_term].add(docno)
+                    index[nterm].add(docno)
                 except KeyError, ke:
-                    index[normalized_term] = set([docno])
+                    index[nterm] = set([docno])
+
+            # Early collect of non-referenced objects
+            #gc.collect()
+
+        print "Index cache (%d terms) created in %.2f seconds." % (len(index.keys()), time.time() - start)
 
         # Skip stopwords if requested
         skipctr = 0
@@ -130,8 +118,6 @@ class SearchEngine(object):
                 except KeyError, ke:
                     pass
         print "%d stopword removed." % skipctr
-
-        print "Index cache (%d terms) created in %.2f seconds." % (len(index.keys()), time.time() - start)
 
         # Some early cleanup for avoiding memory exhaustion
         print "Cleaning up."
