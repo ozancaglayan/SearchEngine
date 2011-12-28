@@ -11,12 +11,16 @@ import multiprocessing
 
 from utils import *
 
+from PorterStemmer import PorterStemmer
+
 class SearchEngine(object):
 
     def __init__(self):
         self.data_path = "data/AP"
         self.document_cache_path = "cache/documents.db"
         self.index_cache_path = "cache/index.db"
+
+        self.stemmer = PorterStemmer()
 
     def load(self):
         """Load the databases into the engine."""
@@ -33,6 +37,23 @@ class SearchEngine(object):
         cache_file.close()
 
     def create_index(self, use_stopwords=True, use_stemmer=False):
+        def normalize_term(term, use_stemmer=False):
+            """Process the term according some rules and return it."""
+            import string
+
+            # First of all convert all cases to lowercase
+            nterm = term.lower()
+
+            # Strip out leading and trailing punctuation characters
+            nterm = term.strip(string.punctuation)
+
+            # Use porter stemmer to find out the stem of the term
+            if use_stemmer:
+                nterm = self.stemmer.stem(nterm, 0, len(nterm)-1)
+
+            return nterm
+
+        # Dictionaries
         documents = {}
         index = {}
 
@@ -68,22 +89,47 @@ class SearchEngine(object):
         # FIXME: parallelize here
         print "Creating inverted index of search terms..."
         start = time.time()
+        """
+        pool2 = multiprocessing.Pool()
+        keyctr = 0
+        for result in pool2.imap(generate_index, documents.iteritems(), chunksize=100):
+            docno, terms = result
+            keyctr += 1
+            print "%d/%d.." % (keyctr, len(documents.keys()))
+            for term in terms:
+                try:
+                    index[term].add(docno)
+                except KeyError, ke:
+                    index[term] = set([docno])
+
+            del terms
+
+        pool2.close()
+        pool2.join()
+
+        """
         for docno, docs in documents.items():
-            for doc in docs:
-                # Terms are currently whitespace separated
-                for term in doc.split():
-                    try:
-                        index[term].add(docno)
-                    except KeyError, ke:
-                        index[term] = set([docno])
+            # Merge sub-documents into one string
+            total_docs = "".join(docs)
+
+            # Terms are currently whitespace separated
+            for term in total_docs.split():
+                normalized_term = normalize_term(term, use_stemmer)
+                try:
+                    index[normalized_term].add(docno)
+                except KeyError, ke:
+                    index[normalized_term] = set([docno])
 
         # Skip stopwords if requested
+        skipctr = 0
         if use_stopwords:
             for word in stop_words:
                 try:
                     del index[word]
+                    skipctr += 1
                 except KeyError, ke:
                     pass
+        print "%d stopword removed." % skipctr
 
         print "Index cache (%d terms) created in %.2f seconds." % (len(index.keys()), time.time() - start)
 
@@ -96,13 +142,16 @@ class SearchEngine(object):
         start = time.time()
         self.dump_cache(index, self.index_cache_path)
         print "Index cache dumped in %.2f seconds." % (time.time() - start)
+        open("keys.txt", "w").write("\n".join(sorted(index.keys())))
 
 
 # Test the class
-if __name__ == "__main__":
+def main():
     engine = SearchEngine()
-    engine.create_index()
+    engine.create_index(use_stemmer=False)
 
+
+    """
     print "Loading engine."
     engine.load()
 
@@ -111,3 +160,11 @@ if __name__ == "__main__":
         print "Found %d results matching 'abandoned'." % len(results)
     else:
         print "No results found."
+    """
+
+
+if __name__ == "__main__":
+    #import guppy
+    #from guppy.heapy import Remote
+    #Remote.on()
+    main()

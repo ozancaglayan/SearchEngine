@@ -1,6 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+import sys
+
 from SearchEngine import SearchEngine
 
 if __name__ == "__main__":
