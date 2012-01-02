@@ -21,12 +21,19 @@ class SearchEngine(object):
         self.index_cache_path = "cache/index.db"
         self.stem_cache_path = "cache/stems.db"
 
+        self.document_cache = False
+        self.index_cache = False
+
         self.stemmer = PorterStemmer()
 
     def load(self):
         """Load the databases into the engine."""
         self.document_cache = cPickle.Unpickler(open(self.document_cache_path, "rb")).load()
         self.index_cache = cPickle.Unpickler(open(self.index_cache_path, "rb")).load()
+
+    def is_loaded(self):
+        return self.document_cache and \
+               self.index_cache
 
     def get_document(self, docid):
         return self.document_cache.get(docid, "")
@@ -59,7 +66,7 @@ class SearchEngine(object):
         cPickle.dump(_dict, cache_file, protocol=2)
         cache_file.close()
 
-    def create_index(self):
+    def create_index(self, force=False):
         # Dictionaries & sets
         documents = {}
         index = {}
@@ -73,7 +80,7 @@ class SearchEngine(object):
         punctuation = string.punctuation
         digits = "$%s" % string.digits
 
-        if not os.path.exists(self.document_cache_path):
+        if force or not os.path.exists(self.document_cache_path):
             # Create a multiprocessing pool
             pool = multiprocessing.Pool(maxtasksperchild=1)
 
@@ -113,7 +120,7 @@ class SearchEngine(object):
 
             gc.collect()
         else:
-            print "Loading caches..."
+            print "Loading document and term stems caches from disk..."
             documents = cPickle.Unpickler(open(self.document_cache_path, "rb")).load()
             term_stems = cPickle.Unpickler(open(self.stem_cache_path, "rb")).load()
 
@@ -172,19 +179,6 @@ class SearchEngine(object):
 def main():
     engine = SearchEngine()
     engine.create_index()
-
-
-    """
-    print "Loading engine."
-    engine.load()
-
-    results = engine.search("abandoned")
-    if results:
-        print "Found %d results matching 'abandoned'." % len(results)
-    else:
-        print "No results found."
-    """
-
 
 if __name__ == "__main__":
     main()
