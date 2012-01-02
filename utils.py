@@ -5,20 +5,6 @@ import subprocess
 import cStringIO
 import gc
 
-def normalize_term(term, use_stemmer=False):
-    """Process the term according some rules and return it."""
-    import string
-
-    # First of all convert all cases to lowercase
-    # Then, strip out leading and trailing punctuation characters
-    nterm = term.lower().strip(string.punctuation)
-
-    # Use porter stemmer to find out the stem of the term
-    if use_stemmer:
-        nterm = self.stemmer.stem(nterm, 0, len(nterm)-1)
-
-    return nterm
-
 def find_all(text, pattern):
     """Returns the indexes of occurence positions."""
     start = 0
@@ -28,7 +14,6 @@ def find_all(text, pattern):
             return
         yield start
         start += len(pattern)
-
 
 def parse_sgml(file_path):
     """Parses a .Z compressed SGML file and return a dict representing the docs."""
@@ -43,7 +28,8 @@ def parse_sgml(file_path):
     uncompressed_data = cStringIO.StringIO(proc.communicate()[0])
 
     # FSM variables
-    text_data = ""
+    text_data = []
+    terms = set([])
     document_no = None
     text = False
 
@@ -52,18 +38,19 @@ def parse_sgml(file_path):
         if line.startswith("</TEXT>"):
             # Now store the document for further caching
             try:
-                #printv("Adding %s" % document_no)
-                doc_dict[document_no].append(text_data)
+                doc_dict[document_no].append("".join(text_data))
             except KeyError, ke:
-                doc_dict[document_no] = [text_data]
+                doc_dict[document_no] = ["".join(text_data)]
 
             # Reset text_data as we may hit another <Text>
-            # with different Dateline
-            text_data = ""
+            # with different <Dateline>
+            del text_data
+            text_data = []
             text = False
         elif text:
             # Fetch document text data
-            text_data += "%s\n" % line
+            text_data.append("%s\n" % line)
+            terms.update(line.split())
         elif line.startswith("<DOCNO>"):
             # We've got DOCNO
             document_no = line.split()[1]
@@ -71,22 +58,7 @@ def parse_sgml(file_path):
             text = True
 
     uncompressed_data.close()
+    del uncompressed_data
 
     # Return the dictionaries
-    return doc_dict
-
-def generate_index(document_tuple):
-
-    docno, doctext = document_tuple
-    doctext = "".join(doctext)
-
-    # Tuples of (docno,term)
-    result = []
-
-    for term in doctext.split():
-        #normalized_term = normalize_term(term, False)
-        normalized_term = term
-        result.append(normalized_term)
-
-    gc.collect()
-    return docno, result
+    return doc_dict, terms
