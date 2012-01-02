@@ -127,7 +127,8 @@ class SearchEngine(object):
 
             # Terms are whitespace delimited
             for term in [t.lower().strip(punctuation) \
-                    for t in total_docs.split() if t[0] not in digits]:
+                    for t in total_docs.split() if t.strip(punctuation) and \
+                    t.strip(punctuation)[0] not in "$%s" % digits]:
                 #position = find_all(total_docs, term)
 
                 # Add the term to the inverted index
