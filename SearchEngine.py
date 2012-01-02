@@ -13,8 +13,16 @@ import multiprocessing
 from utils import *
 from PorterStemmer import PorterStemmer
 
-class SearchEngine(object):
+class SearchEngineResult(object):
+    def __init__(self, docno, docs, terms):
+        self.docno = docno
+        self.docs = docs
 
+    def to_html(self):
+        """Returns an HTML representation of the document
+        with search terms highlighted."""
+
+class SearchEngine(object):
     def __init__(self):
         self.data_path = "data/AP"
         self.document_cache_path = "cache/documents.db"
@@ -40,11 +48,14 @@ class SearchEngine(object):
 
     def search(self, query):
         results = set([])
-        terms = query.split()
+        terms = query.lower().split()
         intersect = union = False
+
+        searched_terms = []
 
         for term in terms:
             if term not in ("&&", "||"):
+                searched_terms.append(term)
                 if intersect:
                     results = results.intersection(self.index_cache.get(term, set([])))
                     intersect = False
@@ -58,7 +69,7 @@ class SearchEngine(object):
             elif term == "||":
                 union = True
 
-        return dict([docno, self.document_cache[docno]] for docno in results)
+        return dict([docno, self.document_cache[docno]] for docno in results), searched_terms
 
     def dump_cache(self, _dict, filename):
         cache_file = open(filename, "wb")
@@ -76,7 +87,7 @@ class SearchEngine(object):
         # List of stopwords
         stop_words = open("docs/stopwords.txt", "r").read().strip().split("\r\n")
 
-        # Make them local references
+        # Make them local references for speeding up
         punctuation = string.punctuation
         digits = "$%s" % string.digits
 
@@ -128,21 +139,18 @@ class SearchEngine(object):
         print "Creating inverted index of search terms..."
         start = time.time()
 
-        for docno, docs in documents.items():
-            # Merge sub-documents into one string
-            total_docs = "".join(docs)
-
+        for docno, doc in documents.items():
             # Terms are whitespace delimited
-            stripped_terms = [t.strip(punctuation) for t in total_docs.split()]
+            stripped_terms = [t.strip(punctuation) for t in doc.split()]
             terms = [_term.lower() for _term in stripped_terms \
                     if _term and _term[0] not in digits]
             #len_terms = float(len(terms))
             for term in terms:
-                #positions = find_all(total_docs, term)
+                #positions = find_all(doc, term)
 
                 # Add the term to the inverted index
                 _term = term_stems[term]
-                #freq = total_docs.count(_term)/len_terms
+                #freq = doc.count(_term)/len_terms
                 try:
                     #index[_term].add((docno, freq))
                     index[_term].add(docno)

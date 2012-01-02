@@ -6,6 +6,8 @@ from PyQt4 import QtCore
 
 from ui.ui_mainwindow import Ui_SearchEngineMainWindow
 
+from documentwindow import DocumentWindow
+
 from SearchEngine import SearchEngine
 
 import os
@@ -27,16 +29,21 @@ class SearchEngineGUI(QtGui.QDialog, Ui_SearchEngineMainWindow):
         self.engine = SearchEngine()
 
     def slotShowDocument(self, item, column):
-        print item.text(0)
+        documentWindow = DocumentWindow(self, item.text(0),
+                                        item.data(1, QtCore.Qt.UserRole+1).toString(),
+                                        unicode(item.data(1, QtCore.Qt.UserRole+2).toString()))
+        documentWindow.show()
 
     def slotProcessQuery(self):
-        query = unicode(self.lineEditQuery.text())
+        query = self.lineEditQuery.text()
         self.treeWidgetResults.clear()
-        for docno, docs in self.engine.search(query):
+        result_dict, terms = self.engine.search(unicode(query))
+        for docno, docs in result_dict.items():
             record = QtGui.QTreeWidgetItem(self.treeWidgetResults)
             record.setText(0, docno)
-            # FIXME: Only the firstdoc for now
-            record.setText(1, docs[0])
+            record.setText(1, "%s..." % docs[:250])
+            record.setData(1, QtCore.Qt.UserRole+1, docs)
+            record.setData(1, QtCore.Qt.UserRole+2, ",".join(terms))
 
     def slotCheckQueryText(self, text):
         self.pushButtonSearch.setEnabled(self.engine.is_loaded() and bool(text))

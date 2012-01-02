@@ -39,9 +39,9 @@ def parse_sgml(file_path):
         if line.startswith("</TEXT>"):
             # Now store the document for further caching
             try:
-                doc_dict[document_no].append("".join(text_data))
+                doc_dict[document_no] += "".join(text_data)
             except KeyError, ke:
-                doc_dict[document_no] = ["".join(text_data)]
+                doc_dict[document_no] = "".join(text_data)
 
             # Reset text_data as we may hit another <Text>
             # with different <Dateline>
