@@ -51,7 +51,7 @@ class SearchEngine(object):
             elif term == "||":
                 union = True
 
-        return results
+        return dict([docno, self.document_cache[docno]] for docno in results)
 
     def dump_cache(self, _dict, filename):
         cache_file = open(filename, "wb")
@@ -71,7 +71,7 @@ class SearchEngine(object):
 
         # Make them local references
         punctuation = string.punctuation
-        digits = string.digits
+        digits = "$%s" % string.digits
 
         if not os.path.exists(self.document_cache_path):
             # Create a multiprocessing pool
@@ -126,16 +126,24 @@ class SearchEngine(object):
             total_docs = "".join(docs)
 
             # Terms are whitespace delimited
-            for term in [t.lower().strip(punctuation) \
-                    for t in total_docs.split() if t.strip(punctuation) and \
-                    t.strip(punctuation)[0] not in "$%s" % digits]:
-                #position = find_all(total_docs, term)
+            stripped_terms = [t.strip(punctuation) for t in total_docs.split()]
+            terms = [_term.lower() for _term in stripped_terms \
+                    if _term and _term[0] not in digits]
+            #len_terms = float(len(terms))
+            for term in terms:
+                #positions = find_all(total_docs, term)
 
                 # Add the term to the inverted index
+                _term = term_stems[term]
+                #freq = total_docs.count(_term)/len_terms
                 try:
-                    index[term_stems[term]].add(docno)
+                    #index[_term].add((docno, freq))
+                    index[_term].add(docno)
+                    #index[_term].add(docno)
                 except KeyError, ke:
-                    index[term_stems[term]] = set([docno])
+                    #index[_term] = set([(docno, freq)])
+                    index[_term] = set([docno])
+                    #index[_term] = set([docno])
 
         print "Index cache (%d terms) created in %.2f seconds." % (len(index.keys()), time.time() - start)
 

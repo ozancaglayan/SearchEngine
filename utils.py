@@ -8,11 +8,12 @@ import gc
 def find_all(text, pattern):
     """Returns the indexes of occurence positions."""
     start = 0
+    result = []
     while True:
         start = text.find(pattern, start)
         if start == -1:
-            return
-        yield start
+            return result
+        result.append(start)
         start += len(pattern)
 
 def parse_sgml(file_path):
