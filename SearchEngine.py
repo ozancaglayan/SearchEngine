@@ -6,8 +6,10 @@ import gc
 import sys
 import glob
 import time
+import array
 import cPickle
 import cStringIO
+import itertools
 import subprocess
 import multiprocessing
 
@@ -22,16 +24,6 @@ def stem_term(term):
     nterm = term.lower().strip('!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~')
     stem = STEMMER.stem(nterm, 0, len(nterm)-1)
     return (nterm, stem)
-
-def dump_cache(_dict, filename):
-    start = time.time()
-    cache_file = open(filename, "wb")
-    cPickle.Pickler(cache_file, protocol=2)
-    print "Dumping cache into %s..." % filename
-    cPickle.dump(_dict, cache_file, protocol=2)
-    cache_file.close()
-    print "Dumping of %s finished in "\
-          "%.2f seconds." % (filename, time.time() - start)
 
 def parse_sgml(file_path):
     """Parses a .Z compressed SGML file and returns
@@ -90,9 +82,9 @@ class SearchEngine(object):
     def __init__(self, force=False, test=False, client=False):
         # Paths
         self.data_path = os.path.join("data", "AP")
-        self.document_cache_path = os.path.join("cache", "documents.db")
+        self.documents_cache_path = os.path.join("cache", "documents.db")
         self.index_cache_path = os.path.join("cache", "index.db")
-        self.stem_cache_path = os.path.join("cache", "stems.db")
+        self.term_stems_cache_path = os.path.join("cache", "term_stems.db")
 
         # Force creation of document and stem caches
         self.force = force
@@ -109,20 +101,81 @@ class SearchEngine(object):
         self.term_stems = {}
         self.term_set = set([])
 
+    def dump_cache(self, filename):
+        start = time.time()
+        _dict = self.__dict__[os.path.basename(\
+                filename.replace(".db", ""))]
+        cache_file = open(filename, "wb")
+        pickler = cPickle.Pickler(cache_file, protocol=2)
+        print "Dumping cache into %s..." % filename
+        pickler.dump(_dict)
+        cache_file.close()
+        print "Dumping of %s finished in "\
+              "%.2f seconds." % (filename, time.time() - start)
+
     def load(self):
         """Load the databases into the engine."""
         print "Loading document and term stems caches from disk..."
         if len(self.documents) == 0:
+            print "Loading document cache.."
             self.documents = \
-                cPickle.Unpickler(open(self.document_cache_path, "rb")).load()
+                cPickle.Unpickler(open(self.documents_cache_path, "rb")).load()
         if not self.client and len(self.term_stems) == 0:
+            print "Loading term stem cache.."
             self.term_stems = \
-                cPickle.Unpickler(open(self.stem_cache_path, "rb")).load()
+                cPickle.Unpickler(open(self.term_stems_cache_path, "rb")).load()
         if self.client and len(self.index) == 0:
+            print "Loading inverted index cache.."
             self.index = \
                 cPickle.Unpickler(open(self.index_cache_path, "rb")).load()
 
+    def phrasal_query(self, query):
+        # Strip quotes, split and stem it
+        terms = [STEMMER.stem(_term, 0, len(_term)-1) for \
+                _term in query[1:-1].lower().split()]
+
+        results = {}
+        for term in terms:
+            try:
+                results.update(self.index[term])
+            except KeyError:
+                pass
+
+        # results is a list of dictionary for every term
+        # with keys as docno's and values as positions.
+
+        print results
+        #docs = set(results.pop().keys())
+
+        return
+
+        for result in results:
+            # {'AP890101-0022': '1,2,3,45',
+            #  'AP891212-0123': '1,354', for the term 'ahmet' for example.
+
+            # Let's store the intersection of the docno's
+            docs.intersection_update(set(result.keys()))
+
+        # Now we have the intersection of documents having the
+        # given terms. We now have to find the consecutive appearances.
+
+        for doc in docs:
+            #itertools.product(results
+            pass
+
+
+        """
+        return dict([docno, self.documents[docno]] \
+                for docno in docs.keys()), terms
+        """
+
+
     def search(self, query):
+        if query[0] in  '\'"' and query[-1] in '\'"':
+            # Phrasal query
+            return self.phrasal_query(query)
+
+        # Plain query
         results = set([])
         terms = query.lower().split()
         intersect = union = False
@@ -150,7 +203,7 @@ class SearchEngine(object):
                 for docno in results), searched_terms
 
     def create_document_cache(self):
-        if self.force or not os.path.exists(self.document_cache_path):
+        if self.force or not os.path.exists(self.documents_cache_path):
             # Create a multiprocessing pool
             pool = multiprocessing.Pool(maxtasksperchild=1)
 
@@ -175,9 +228,11 @@ class SearchEngine(object):
             pool.join()
             print "Document cache created in "\
                     "%.2f seconds." % (time.time() - start)
+            gc.collect()
+            self.dump_cache(self.documents_cache_path)
 
     def create_stem_cache(self):
-        if self.force or not os.path.exists(self.stem_cache_path):
+        if self.force or not os.path.exists(self.term_stems_cache_path):
             print "Creating stem dictionary for speeding up inverted indexing..."
             pool = multiprocessing.Pool(maxtasksperchild=1000)
             start = time.time()
@@ -188,6 +243,8 @@ class SearchEngine(object):
             pool.join()
             print "Created stem dictionary (%d terms) "\
                   "in %.2f seconds." % (len(self.term_stems), time.time()-start)
+            gc.collect()
+            self.dump_cache(self.term_stems_cache_path)
 
     def clean_stop_words(self):
         skipctr = 0
@@ -211,44 +268,40 @@ class SearchEngine(object):
         # First create document cache
         self.create_document_cache()
 
-        gc.collect()
-
         # Then create stem cache
         self.create_stem_cache()
-
-        gc.collect()
-
-        # Dump caches
-        dump_cache(self.documents, self.document_cache_path)
-        dump_cache(self.term_stems, self.stem_cache_path)
 
         # Load caches
         self.load()
 
-        gc.collect()
-
         # Generate inverted index
         print "Creating inverted index of search terms..."
         start = time.time()
+
+        #pool = multiprocessing.Pool()
 
         for docno, doc in self.documents.iteritems():
             # Terms are whitespace delimited
             stripped_terms = [t.strip(punctuation) for t in doc.split()]
             terms = [_term.lower() for _term in stripped_terms \
                     if _term and _term[0] not in digits]
+
             for ind, term in enumerate(terms):
                 # Add the term's to the inverted index
                 _term = self.term_stems[term]
                 try:
                     docinfo = self.index[_term]
                     try:
-                        docinfo[docno].append(ind)
+                        docinfo[docno] = "%s,%s" % (docinfo[docno], ind)
                     except KeyError:
-                        docinfo[docno] = [ind]
-                    #index[_term].add(docno)
+                        docinfo[docno] = "%s" % ind
                 except KeyError:
-                    self.index[_term] = {docno: [ind]}
-                    #index[_term] = set([docno])
+                    self.index[_term] = {docno: "%s" % ind}
+                else:
+                    del docinfo
+
+        del self.documents
+        del self.term_stems
 
         # Skip stopwords
         self.clean_stop_words()
@@ -257,8 +310,7 @@ class SearchEngine(object):
               "%.2f seconds." % (len(self.index.keys()), time.time() - start)
 
         # Finally dump index cache
-        dump_cache(self.index, self.index_cache_path)
-        #open("keys.txt", "w").write("\n".join(sorted(index.keys())))
+        self.dump_cache(self.index_cache_path)
 
 
 # Test the class
@@ -277,9 +329,13 @@ def main():
 
     if not client:
         engine.create_index()
+    else:
+        engine.load()
+
+    return engine
 
     #from meliae import scanner
     #scanner.dump_all_objects("searchengine.json")
 
 if __name__ == "__main__":
-    main()
+    engine = main()

@@ -26,7 +26,7 @@ class SearchEngineGUI(QtGui.QDialog, Ui_SearchEngineMainWindow):
         self.treeWidgetResults.itemDoubleClicked.connect(self.slotShowDocument)
 
         # Create search engine instance
-        self.engine = SearchEngine()
+        self.engine = SearchEngine(client=True)
 
     def slotShowDocument(self, item, column):
         documentWindow = DocumentWindow(self, item.text(0),
@@ -55,7 +55,7 @@ class SearchEngineGUI(QtGui.QDialog, Ui_SearchEngineMainWindow):
         QtGui.qApp.processEvents()
         QtGui.QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.WaitCursor))
 
-        self.engine.create_index(force=True)
+        self.engine.create_index()
 
         # Restore cursor
         QtGui.QApplication.restoreOverrideCursor()
@@ -74,8 +74,8 @@ class SearchEngineGUI(QtGui.QDialog, Ui_SearchEngineMainWindow):
         self.engine.load()
 
         # Fill UI with some info
-        self.labelIndexInfo.setText("Loaded %d documents with %d terms." % (len(self.engine.document_cache),
-                                                                            len(self.engine.index_cache)))
+        self.labelIndexInfo.setText("Loaded %d documents with %d terms." % (len(self.engine.documents),
+                                                                            len(self.engine.index)))
 
         # Restore cursor
         QtGui.QApplication.restoreOverrideCursor()
