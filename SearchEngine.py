@@ -22,6 +22,11 @@ STEMMER = PorterStemmer()
 #############
 # Utilities #
 #############
+def stem_term(term):
+    """Stems a term and returns unstemmed, stemmed tuple."""
+    nterm = term.lower().strip('!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~')
+    stem = STEMMER.stem(nterm, 0, len(nterm)-1)
+    return (nterm, stem)
 
 def consecutive(sequence):
     """Returns True if the given sequence is consecutive."""
@@ -104,6 +109,9 @@ class SearchEngine(object):
         # Only load the document and index caches
         self.client = client
 
+        # Are the indexes loaded?
+        self.is_loaded = False
+
         # Data structures
         self.documents = {}
         self.index = {}
@@ -125,7 +133,6 @@ class SearchEngine(object):
 
     def load(self):
         """Loads the databases into the engine."""
-        print "Loading document and term stems caches from disk..."
         if len(self.documents) == 0:
             print "Loading document cache.."
             self.documents = \
@@ -138,12 +145,13 @@ class SearchEngine(object):
             print "Loading inverted index cache.."
             self.index = \
                 cPickle.Unpickler(open(self.index_cache_path, "rb")).load()
+            self.is_loaded = True
 
     def phrasal_query(self, query):
         """Does a phrasal query and returns the results."""
         # Strip quotes, split and stem it
         terms = [STEMMER.stem(_term, 0, len(_term)-1) for \
-                _term in query[1:-1].lower().split()]
+                _term in query.lower().split()]
 
         results = {}
         for term in terms:
@@ -202,13 +210,13 @@ class SearchEngine(object):
                     continue
 
         return dict([docno, self.documents[docno]] \
-                for docno in final_results), terms
+                for docno in final_results), query.lower().split()
 
     def search(self, query):
         """Does a simple query and returns the results."""
         if query[0] in  '\'"' and query[-1] in '\'"':
             # Phrasal query
-            return self.phrasal_query(query)
+            return self.phrasal_query(query[1:-1])
 
         # Plain query
         results = set([])
@@ -279,12 +287,6 @@ class SearchEngine(object):
 
     def create_stem_cache(self):
         """Creates an intermediate stem cache to use while indexing."""
-        def stem_term(term):
-            """Stems a term and returns unstemmed, stemmed tuple."""
-            nterm = term.lower().strip('!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~')
-            stem = STEMMER.stem(nterm, 0, len(nterm)-1)
-            return (nterm, stem)
-
         if self.force or not os.path.exists(self.term_stems_cache_path):
             print "Creating stem cache for speeding up inverted indexing..."
             pool = multiprocessing.Pool(maxtasksperchild=1000)

@@ -46,7 +46,7 @@ class SearchEngineGUI(QtGui.QDialog, Ui_SearchEngineMainWindow):
             record.setData(1, QtCore.Qt.UserRole+2, ",".join(terms))
 
     def slotCheckQueryText(self, text):
-        self.pushButtonSearch.setEnabled(self.engine.is_loaded() and bool(text))
+        self.pushButtonSearch.setEnabled(self.engine.is_loaded and bool(text))
 
     def slotGenerateIndex(self):
         self.groupBox.setEnabled(False)
@@ -76,7 +76,6 @@ class SearchEngineGUI(QtGui.QDialog, Ui_SearchEngineMainWindow):
         # Fill UI with some info
         self.labelIndexInfo.setText("Loaded %d documents with %d terms." % (len(self.engine.documents),
                                                                             len(self.engine.index)))
-
         # Restore cursor
         QtGui.QApplication.restoreOverrideCursor()
         QtGui.QApplication.restoreOverrideCursor()
