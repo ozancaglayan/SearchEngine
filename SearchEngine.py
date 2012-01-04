@@ -6,7 +6,6 @@ import gc
 import sys
 import glob
 import time
-import array
 import cPickle
 import cStringIO
 import itertools
@@ -20,6 +19,14 @@ STEMMER = PorterStemmer()
 #############
 # Utilities #
 #############
+
+def consecutive(iterable):
+    for i in xrange(len(iterable)-1):
+        if int(iterable[i+1]) - int(iterable[i]) != 1:
+            return False
+
+    return True
+
 def stem_term(term):
     nterm = term.lower().strip('!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~')
     stem = STEMMER.stem(nterm, 0, len(nterm)-1)
@@ -137,37 +144,60 @@ class SearchEngine(object):
         results = {}
         for term in terms:
             try:
-                results.update(self.index[term])
+                results[term] = self.index[term]
             except KeyError:
-                pass
+                # No result found for term, the final result
+                # set is empty, we can return!
+                return {}, terms
 
-        # results is a list of dictionary for every term
-        # with keys as docno's and values as positions.
+        # results is a dictionary of dictionary
+        # with terms as primary key
+        # with docno's as secondary key and positions as secondary values
+        # Ex: {'ahmet': {'AP890103-0201': '563,784',
+        #                'AP890119-0212': '146',
+        #                'AP890121-0066': '25',
+        #                'AP890123-0121': '175',
+        #                'AP890124-0129': '276',
+        #                'AP890328-0013': '490',
+        #                'AP890513-0022': '537',
+        #                'AP890704-0152': '595',
+        #                'AP890707-0195': '523',
+        #                'AP890715-0134': '35',
+        #                'AP890715-0143': '30',
+        #                'AP890823-0122': '329',
+        #                'AP890830-0260': '30',
+        #                'AP891015-0050': '286',
+        #                'AP891228-0050': '89'},
+        #     'ertegun':{'AP890103-0201': '564',
+        #                'AP890513-0022': '538',
+        #                'AP890715-0134': '1,26,36,44,134,175,187,195',
+        #                'AP890715-0143': '1,26,138,150,158',
+        #                'AP890830-0260': '32,36'}
+        #           }
 
-        print results
-        #docs = set(results.pop().keys())
+        # This is a set of final document set which contains all of the
+        # terms(results.keys())
+        common_docs = reduce(lambda x, y: set(x).intersection(y),\
+                            [pos_dict.keys() for pos_dict \
+                            in results.values()])
 
-        return
+        # We have to keep the term order in the original query
+        # as dicts are unsorted
+        final_results = []
+        for doc in common_docs:
+            # Get the cartesian product of positions for a specific doc
+            # In the end we should search for consecutive positions
+            # ('35', '1')
+            # ('35', '26')
+            # ('35', '36') -> Bingo, push the doc to the final result set.
+            # Note that the length of the above sequence == len(terms)!
+            for product in itertools.product(*[results[term][doc].split(",") for term in terms]):
+                if consecutive(product):
+                    final_results.append(doc)
+                    continue
 
-        for result in results:
-            # {'AP890101-0022': '1,2,3,45',
-            #  'AP891212-0123': '1,354', for the term 'ahmet' for example.
-
-            # Let's store the intersection of the docno's
-            docs.intersection_update(set(result.keys()))
-
-        # Now we have the intersection of documents having the
-        # given terms. We now have to find the consecutive appearances.
-
-        for doc in docs:
-            #itertools.product(results
-            pass
-
-
-        """
         return dict([docno, self.documents[docno]] \
-                for docno in docs.keys()), terms
-        """
+                for docno in final_results), terms
 
 
     def search(self, query):
@@ -287,8 +317,6 @@ class SearchEngine(object):
         print "Creating inverted index of search terms..."
         start = time.time()
 
-        #pool = multiprocessing.Pool()
-
         for docno, doc in self.documents.iteritems():
             # Terms are whitespace delimited
             stripped_terms = [t.strip(punctuation) for t in doc.split()]
@@ -321,7 +349,6 @@ class SearchEngine(object):
         # Finally dump index cache
         self.dump_cache(self.index_cache_path)
 
-
 # Test the class
 def main():
     force = False
@@ -342,9 +369,6 @@ def main():
         engine.load()
 
     return engine
-
-    #from meliae import scanner
-    #scanner.dump_all_objects("searchengine.json")
 
 if __name__ == "__main__":
     engine = main()
