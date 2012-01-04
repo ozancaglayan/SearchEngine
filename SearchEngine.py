@@ -1,6 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+"""A simple search engine using inverted indexing."""
+
 import os
 import gc
 import sys
@@ -16,21 +18,18 @@ from PorterStemmer import PorterStemmer
 
 STEMMER = PorterStemmer()
 
+
 #############
 # Utilities #
 #############
 
-def consecutive(iterable):
-    for i in xrange(len(iterable)-1):
-        if int(iterable[i+1]) - int(iterable[i]) != 1:
+def consecutive(sequence):
+    """Returns True if the given sequence is consecutive."""
+    for i in xrange(len(sequence)-1):
+        if int(sequence[i+1]) - int(sequence[i]) != 1:
             return False
 
     return True
-
-def stem_term(term):
-    nterm = term.lower().strip('!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~')
-    stem = STEMMER.stem(nterm, 0, len(nterm)-1)
-    return (nterm, stem)
 
 def parse_sgml(file_path):
     """Parses a .Z compressed SGML file and returns
@@ -86,7 +85,10 @@ def parse_sgml(file_path):
 ###########################
 
 class SearchEngine(object):
+    """Main class representing the Search Engine."""
     def __init__(self, force=False, test=False, client=False):
+        """Instance initializer."""
+
         # Paths
         self.data_path = os.path.join("data", "AP")
         self.documents_cache_path = os.path.join("cache", "documents.db")
@@ -109,6 +111,7 @@ class SearchEngine(object):
         self.term_set = set([])
 
     def dump_cache(self, filename):
+        """Dumps the relevant dictionary to filename."""
         start = time.time()
         _dict = self.__dict__[os.path.basename(\
                 filename.replace(".db", ""))]
@@ -121,7 +124,7 @@ class SearchEngine(object):
               "%.2f seconds." % (filename, time.time() - start)
 
     def load(self):
-        """Load the databases into the engine."""
+        """Loads the databases into the engine."""
         print "Loading document and term stems caches from disk..."
         if len(self.documents) == 0:
             print "Loading document cache.."
@@ -137,6 +140,7 @@ class SearchEngine(object):
                 cPickle.Unpickler(open(self.index_cache_path, "rb")).load()
 
     def phrasal_query(self, query):
+        """Does a phrasal query and returns the results."""
         # Strip quotes, split and stem it
         terms = [STEMMER.stem(_term, 0, len(_term)-1) for \
                 _term in query[1:-1].lower().split()]
@@ -177,7 +181,7 @@ class SearchEngine(object):
 
         # This is a set of final document set which contains all of the
         # terms(results.keys())
-        common_docs = reduce(lambda x, y: set(x).intersection(y),\
+        common_docs = reduce(lambda x, y: set(x).intersection(y), \
                             [pos_dict.keys() for pos_dict \
                             in results.values()])
 
@@ -191,7 +195,8 @@ class SearchEngine(object):
             # ('35', '26')
             # ('35', '36') -> Bingo, push the doc to the final result set.
             # Note that the length of the above sequence == len(terms)!
-            for product in itertools.product(*[results[term][doc].split(",") for term in terms]):
+            for product in itertools.product(*[results[term][doc]\
+                            .split(",") for term in terms]):
                 if consecutive(product):
                     final_results.append(doc)
                     continue
@@ -199,8 +204,8 @@ class SearchEngine(object):
         return dict([docno, self.documents[docno]] \
                 for docno in final_results), terms
 
-
     def search(self, query):
+        """Does a simple query and returns the results."""
         if query[0] in  '\'"' and query[-1] in '\'"':
             # Phrasal query
             return self.phrasal_query(query)
@@ -215,10 +220,11 @@ class SearchEngine(object):
         for term in terms:
             if term not in ("&&", "||"):
                 searched_terms.append(term)
+                _term = STEMMER.stem(term, 0, len(term)-1)
 
                 # result is either empty or a set of docno's
                 try:
-                    result = set(self.index[term].keys())
+                    result = set(self.index[_term].keys())
                 except KeyError:
                     result = set([])
 
@@ -242,6 +248,7 @@ class SearchEngine(object):
                 for docno in results), searched_terms
 
     def create_document_cache(self):
+        """Creates the document cache by parsing the .Z files."""
         if self.force or not os.path.exists(self.documents_cache_path):
             # Create a multiprocessing pool
             pool = multiprocessing.Pool(maxtasksperchild=1)
@@ -271,8 +278,15 @@ class SearchEngine(object):
             self.dump_cache(self.documents_cache_path)
 
     def create_stem_cache(self):
+        """Creates an intermediate stem cache to use while indexing."""
+        def stem_term(term):
+            """Stems a term and returns unstemmed, stemmed tuple."""
+            nterm = term.lower().strip('!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~')
+            stem = STEMMER.stem(nterm, 0, len(nterm)-1)
+            return (nterm, stem)
+
         if self.force or not os.path.exists(self.term_stems_cache_path):
-            print "Creating stem dictionary for speeding up inverted indexing..."
+            print "Creating stem cache for speeding up inverted indexing..."
             pool = multiprocessing.Pool(maxtasksperchild=1000)
             start = time.time()
             for result in pool.map(stem_term, self.term_set, chunksize=10000):
@@ -280,12 +294,13 @@ class SearchEngine(object):
                 self.term_stems[key] = value
             pool.close()
             pool.join()
-            print "Created stem dictionary (%d terms) "\
+            print "Created stem cache (%d terms) "\
                   "in %.2f seconds." % (len(self.term_stems), time.time()-start)
             gc.collect()
             self.dump_cache(self.term_stems_cache_path)
 
     def clean_stop_words(self):
+        """Cleans the stop words from the inverted index."""
         skipctr = 0
         # List of stopwords
         stop_words = open(os.path.join("docs", "stopwords.txt"), \
@@ -300,6 +315,7 @@ class SearchEngine(object):
         print "%d stopword(s) removed." % skipctr
 
     def create_index(self):
+        """Creates the inverted index."""
         # Make them local references for speeding up
         punctuation = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
         digits = "$0123456789"
