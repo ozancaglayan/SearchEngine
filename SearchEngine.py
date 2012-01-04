@@ -185,15 +185,24 @@ class SearchEngine(object):
         for term in terms:
             if term not in ("&&", "||"):
                 searched_terms.append(term)
-                if intersect:
-                    results = results.intersection(\
-                            self.index.get(term, set([])))
-                    intersect = False
-                elif union:
-                    results = results.union(self.index.get(term, set([])))
-                    union = False
-                else:
-                    results.update(self.index.get(term, set([])))
+
+                # result is either empty or a set of docno's
+                try:
+                    result = set(self.index[term].keys())
+                except KeyError:
+                    result = set([])
+
+                if result:
+                    # The keys are the document numbers
+                    if intersect:
+                        results.intersection_update(result)
+                        intersect = False
+                    elif union:
+                        results.update(result)
+                        union = False
+                    else:
+                        results.update(result)
+
             elif term == "&&":
                 intersect = True
             elif term == "||":
